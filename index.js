@@ -89,13 +89,14 @@ App.prototype.init = function(name) {
   if (!root) throw new Error(name + ' not found');
 
   var tree = init(self, root);
+
   return function render(scope, fn) {
     if (typeof scope === 'function') {
       fn = scope;
       scope = self.scope;
     }
     if (!mori.is_map(scope)) return fn(new Error('invalid scope passed'));
-    return renderScope(self, tree, scope, fn);
+    return renderElement(self, tree, scope, fn);
   };
 };
 
@@ -108,7 +109,11 @@ App.prototype.init = function(name) {
  */
 
 App.prototype.render = function(name, fn) {
-  var render = this.init(name);
+  try {
+    var render = this.init(name);
+  } catch(err) {
+    return fn(err);
+  }
   render(fn);
   return render;
 };
@@ -184,6 +189,15 @@ function noopInit(fn) {
   };
 }
 
-function renderScope(app, tree, scope, fn) {
+/**
+ * Render a element
+ *
+ * @param {App} app
+ * @param {Element} el
+ * @param {Scope} scope
+ * @param {Function} fn
+ */
+
+function renderElement(app, el, scope, fn) {
   fn(null, {});
 }
