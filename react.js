@@ -73,6 +73,6 @@ function toDom(el) {
   }, {}, mori.get(el, 'attrs'));
 
   var children = mori.get(el, 'children');
-  if (typeof children !== 'string') children = toDom(el);
+  if (typeof children !== 'string') children = toDom(children);
   return d[name](attrs, children);
 }

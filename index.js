@@ -136,8 +136,10 @@ function init(app, el) {
   if (mori.is_vector(el)) return initCollection(app, el);
   debug('initializing view', el);
   var el2 = initDirectives(app, el, mori.keys(mori.get(el, 'attrs')));
-  var children = initCollection(app, mori.get(el2, 'children'));
-  return mori.assoc(el2, 'children', children);
+  var children = mori.get(el2, 'children');
+  if (!children || typeof children === 'string') return mori.assoc(el2, 'children', children);
+  var children2 = initCollection(app, children);
+  return mori.assoc(el2, 'children', children2);
 }
 
 /**
@@ -207,15 +209,30 @@ function noopInit(fn) {
 function renderElement(app, el, scope, fn) {
   if (mori.is_vector(el)) return renderElements(app, el, scope, fn);
   var directives = mori.get(el, 'directives');
-  renderDirective(app, el, scope, directives, fn);
+  renderDirective(app, el, scope, directives, function(err, el2, scope2) {
+    if (err) return fn(err);
+    var children = mori.get(el2, 'children');
+    // TODO flatten children
+
+    if (!el2 || typeof children === 'string') return fn(null, el2);
+
+    renderElements(app, children, scope2, function(err, children2) {
+      if (err) return fn(err);
+      fn(null, mori.assoc(el2, 'children', children2));
+    });
+  });
 }
 
 function renderElements(app, els, scope, fn) {
+  // TODO fix this hack...
+  if (mori.is_seq(els)) els = toVector(els);
+
   var state = mori.vector();
   mori.reduce_kv(function(acc, key, el) {
     renderElement(app, el, scope, function(err, el2) {
       if (err) return fn(err);
       state = mori.assoc(state, key, el2);
+      console.log('COUNT', mori.count(state));
       fn(null, state);
     });
   }, state, els);
@@ -239,4 +256,8 @@ function renderDirective(app, el, scope, directives, fn) {
 
 function noopChange(el, scope, param, done) {
   done(null, el, scope);
+}
+
+function toVector(seq) {
+  return mori.vector.apply(null, mori.into_array(seq));
 }
