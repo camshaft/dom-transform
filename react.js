@@ -14,33 +14,41 @@ var mori = require('mori');
 
 module.exports = function() {
   return function(app) {
-    app.renderReact = function(name, fn) {
-      var component = React.createClass({
-        displayName: self.name,
+    app.renderReact = function(name, scope, fn) {
+      if (typeof scope === 'function') {
+        fn = scope;
+        scope = app.scope;
+      }
+      var Component = React.createClass({
+        displayName: app.name,
         getInitialState: function() {
-          return {tree: ''};
+          return {tree: this.props.tree};
         },
         render: function() {
-          return d.div(null, toDom(this.tree));
+          var tree = this.state.tree;
+          if (!tree) return d.div(null, '');
+          if (mori.count(tree) === 1) return toDom(mori.get(tree, 0));
+          return d.div(null, toDom(tree));
         }
-      })();
+      });
 
-      // check if a dom node was passed and mount it
-      var isDomNode = typeof fn !== 'function';
-      if (isDomNode) React.renderComponent(component, fn);
-
-      app.render(name, function(err, tree) {
-        if (err) return console.error(err.stack);
-        component.setState('tree', tree);
-
-        if (isDomNode) return;
-
+      // render it to a string
+      if (typeof fn === 'function') return app.render(name, scope, function(err, tree) {
+        if (err) return fn(err);
+        var str
         try {
-          var str = React.renderComponentToString(component);
+          str = React.renderComponentToStaticMarkup(Component({tree: tree}));
         } catch(err) {
           return fn(err);
         };
         fn(null, str);
+      });
+
+      var component = Component();
+      React.renderComponent(component, fn);
+      app.render(name, function(err, tree) {
+        if (err) return console.error(err.stack || err);
+        component.setState({'tree': tree});
       });
     };
   };
@@ -55,6 +63,7 @@ module.exports = function() {
  */
 
 function toDom(el) {
+  if (!el) return '';
   if (mori.is_vector(el)) return mori.into_array(mori.map(toDom, el));
   var name = mori.get(el, 'name');
 

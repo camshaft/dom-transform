@@ -11,6 +11,6 @@ describe('compiler', function() {
 
     compiler.view('root', '<div data-hyper=".users"><div data-hyper-repeat="user in users"><span data-hyper-bind="user.name"></span></div></div>');
 
-    console.log(JSON.stringify(compiler.toJSON()));
+    compiler.toJSON();
   });
 });

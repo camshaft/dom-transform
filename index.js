@@ -108,13 +108,18 @@ App.prototype.init = function(name) {
  * @return {Function}
  */
 
-App.prototype.render = function(name, fn) {
+App.prototype.render = function(name, scope, fn) {
+  if (typeof scope === 'function') {
+    fn = scope;
+    scope = this.scope;
+  }
+
   try {
     var render = this.init(name);
   } catch(err) {
     return fn(err);
   }
-  render(fn);
+  render(scope, fn);
   return render;
 };
 
@@ -146,9 +151,9 @@ function init(app, el) {
 
 function initCollection(app, els) {
   debug('initiailizing collection', els);
-  return mori.map(function(view) {
-    return init(app, view);
-  }, els);
+  return mori.reduce_kv(function(acc, i, view) {
+    return mori.assoc(acc, i, init(app, view));
+  }, mori.vector(), els);
 }
 
 /**
@@ -166,12 +171,13 @@ function initDirectives(app, el, attrs) {
 
   var attr = mori.first(attrs);
   var rest = mori.rest(attrs);
-  var init = app.directives[attr] || app.directives[attr.replace(/^data-/, '')];
-  if (!init) return initDirectives(app, el, rest);
+  var initFn = app.directives[attr] || app.directives[attr.replace(/^data-/, '')];
+  if (!initFn) return initDirectives(app, el, rest);
 
-  var res = init(el, app);
-  var conf = mori.hash_map('change', res[1], 'destroy', res[2]);
-  var el2 = mori.assoc_in(res[0], ['directives', attr], conf);
+  var res = initFn(el, app);
+  var conf = mori.hash_map('change', res[1], 'destroy', res[2], 'name', attr);
+  var directives =  mori.conj(mori.get(res[0], 'directives'), conf);
+  var el2 = mori.assoc(res[0], 'directives', directives);
 
   return initDirectives(app, el2, rest);
 }
@@ -199,5 +205,38 @@ function noopInit(fn) {
  */
 
 function renderElement(app, el, scope, fn) {
-  fn(null, {});
+  if (mori.is_vector(el)) return renderElements(app, el, scope, fn);
+  var directives = mori.get(el, 'directives');
+  renderDirective(app, el, scope, directives, fn);
+}
+
+function renderElements(app, els, scope, fn) {
+  var state = mori.vector();
+  mori.reduce_kv(function(acc, key, el) {
+    renderElement(app, el, scope, function(err, el2) {
+      if (err) return fn(err);
+      state = mori.assoc(state, key, el2);
+      fn(null, state);
+    });
+  }, state, els);
+}
+
+function renderDirective(app, el, scope, directives, fn) {
+  if (mori.is_empty(directives)) return fn(null, el, scope);
+
+  var directive = mori.first(directives);
+  var rest = mori.rest(directives);
+
+  var name = mori.get(directive, 'name');
+  var change = mori.get(directive, 'change', noopChange);
+  var param = mori.get_in(el, ['attrs', name]);
+
+  change(el, scope, param, function(err, el2, scope2) {
+    if (err) return fn(err);
+    renderDirective(app, el2, scope2 || scope, rest, fn);
+  });
+}
+
+function noopChange(el, scope, param, done) {
+  done(null, el, scope);
 }

@@ -2,9 +2,11 @@
  * Module dependencies
  */
 
+var should = require('should');
 var App = require('..');
 var compiler = require('../compiler');
 var minidom = require('../minidom');
+var react = require('../react');
 var mori = require('mori');
 
 describe('app', function() {
@@ -13,26 +15,23 @@ describe('app', function() {
 
     app.use(minidom());
     app.use(compiler());
+    app.use(react());
 
-    app.view('root', '<div data-each="user in users"><span data-bind="user.name"></span></div>');
+    app.view('root', '<span data-bind="name"></span>');
 
-    app.directive('data-each', function(el, scope, param) {
-      var expr = param.split(' in ');
-      var items = mori.get(scope, expr[1]);
-      return mori.map(function(item) {
-        var itemScope = mori.assoc(scope, expr[0], item);
-        return mori.assoc(el, 'scope', itemScope);
-      }, items);
-    });
-
-    app.directive('data-bind', function(el, scope, param) {
+    app.directive('data-bind', function(el, scope, param, done) {
       var expr = param.split('.');
       var value = mori.get_in(scope, expr, '');
-      return mori.assoc(el, 'text', value, 'children', null);
+      var el2 =  mori.assoc(el, 'children', value);
+      done(null, el2, scope);
     });
 
-    app.render('root', function(err, str) {
-      console.log('result', str);
+    var scope = mori.hash_map('name', 'cameron');
+
+    app.renderReact('root', scope, function(err, str) {
+      if (err) return done(err);
+      should.exist(str);
+      str.should.eql('<span data-bind="name">cameron</span>');
       done(err);
     });
   });

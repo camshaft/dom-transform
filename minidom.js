@@ -21,6 +21,6 @@ function element(view) {
     'type', view[3] || 'tag',
     'attrs', attrs,
     'children', mori.vector.apply(null, (view[1] || []).map(element)),
-    'directives', mori.hash_map()
+    'directives', mori.vector()
   );
 }
