@@ -4,164 +4,186 @@
 
 var debug = require('debug')('dom-transform:app');
 var mori = require('mori');
-var Batch = require('batch');
 
-var inspect = require('util').inspect;
+/**
+ * Expose the App constuctor
+ */
 
 exports = module.exports = App;
+
+/**
+ * Create an app
+ *
+ * @param {String} name
+ * @param {Array} views
+ */
 
 function App(name, views) {
   if (!(this instanceof App)) return new App(views);
   this.name = name;
   this.views = views || {};
   this.directives = {};
-  this.transforms = [];
   this.scope = mori.hash_map();
   this.mori = mori;
 };
+
+/**
+ * Use a plugin
+ *
+ * @param {Function} fn
+ * @return {App}
+ */
 
 App.prototype.use = function(fn) {
   fn(this);
   return this;
 };
 
-App.prototype.directive = function(name, fn) {
-  debug('adding directive', name);
-  this.directives[name] = fn;
+/**
+ * Add a view
+ *
+ * @param {String} name
+ * @param {Vector|HashMap} view
+ * @return {App}
+ */
+
+App.prototype.view = function(name, view) {
+  debug('adding view', name, view);
+  if (!(mori.is_vector(view) || mori.is_map(view))) throw new Error('invalid view: ' + name);
+  this.views[name] = view;
+  return this;
 };
 
-App.prototype.transform = function(fn) {
-  debug('adding transform');
-  this.transforms.push(fn);
+/**
+ * Add a directive
+ *
+ * @param {String} name
+ * @param {Function} fn
+ * @return {App}
+ */
+
+App.prototype.directive = function(name, fn) {
+  debug('adding directive', name);
+  this.directives[name] = (fn.length === 4 || fn.length === 3)
+    ? noopInit(fn)
+    : fn;
+  return this;
 };
+
+/**
+ * Initialize a view for rendering
+ *
+ * @param {String|Vector|HashMap} name
+ * @return {Function}
+ */
 
 App.prototype.init = function(name) {
   debug('rendering view', name);
   var self = this;
-  var views = this.views[name] || [];
-  var root = mori.vector.apply(null, views.map(createEl));
+
+  var root = typeof name === 'string'
+    ? this.views[name]
+    : name;
+
+  if (!(mori.is_vector(root) || mori.is_map(root))) throw new Error('invalid view: ' + name);
+  if (!root) throw new Error(name + ' not found');
+
   var tree = init(self, root);
-  return tree;
-  return function(scope, fn) {
-    // TODO
-    fn(null, {});
+  return function render(scope, fn) {
+    if (typeof scope === 'function') {
+      fn = scope;
+      scope = self.scope;
+    }
+    if (!mori.is_map(scope)) return fn(new Error('invalid scope passed'));
+    return renderScope(self, tree, scope, fn);
   };
 };
 
-App.prototype.render = function(name, fn) {
-  debug('rendering view', name);
-  var self = this;
-  var views = this.views[name] || [];
-  var root = mori.vector.apply(null, views.map(createEl));
+/**
+ * Render a view
+ *
+ * @param {String|Vector|HashMap} name
+ * @param {Function} fn
+ * @return {Function}
+ */
 
-  init2(self, root, self.scope, fn);
+App.prototype.render = function(name, fn) {
+  var render = this.init(name);
+  render(fn);
+  return render;
 };
 
-function createEl(view) {
-  var attrs = mori.hash_map.apply(null, view[0] || []);
-  return mori.hash_map(
-    'name', view[2] || 'div',
-    'type', view[3] || 'tag',
-    'attrs', attrs,
-    'children', mori.vector.apply(null, (view[1] || []).map(createEl))
-  );
+/**
+ * Initialize an element
+ *
+ * @param {App} app
+ * @param {Element} el
+ * @return {Element}
+ * @api private
+ */
+
+function init(app, el) {
+  if (mori.is_vector(el)) return initCollection(app, el);
+  debug('initializing view', el);
+  var el2 = initDirectives(app, el, mori.keys(mori.get(el, 'attrs')));
+  var children = initCollection(app, mori.get(el2, 'children'));
+  return mori.assoc(el2, 'children', children);
 }
 
-function init(app, view) {
-  if (mori.is_vector(view)) return initCollection(app, view);
-  debug('initializing view', view);
-  var view2 = initDirectives(app, view, mori.keys(mori.get(view, 'attrs')));
-  // TODO initialize children
-  // if (mori.is_vector(view2)) return initCollection(app, view2);
-  // var children = initCollection(app, mori.get(view2, 'children'));
-  // return mori.assoc(view2, 'children', children);
-  return view2;
-}
+/**
+ * Initialize a collection
+ *
+ * @param {App} app
+ * @param {Element[]} els
+ * @return {Element[]}
+ * @api private
+ */
 
-function initCollection(app, views) {
-  debug('initiailizing collection', views);
+function initCollection(app, els) {
+  debug('initiailizing collection', els);
   return mori.map(function(view) {
     return init(app, view);
-  }, views);
+  }, els);
 }
 
-function initDirectives(app, view, attrs) {
-  if (mori.is_empty(attrs)) return view;
+/**
+ * Initialize directives on an element
+ *
+ * @param {App} app
+ * @param {Element} el
+ * @param {Vector} atts
+ * @return {Element}
+ * @api private
+ */
+
+function initDirectives(app, el, attrs) {
+  if (mori.is_empty(attrs)) return el;
+
   var attr = mori.first(attrs);
   var rest = mori.rest(attrs);
-  var conf = app.directives[attr];
-  if (!conf) return initDirectives(app, view, rest);
-  var param = mori.get_in(view, ['attrs', attr]);
+  var init = app.directives[attr] || app.directives[attr.replace(/^data-/, '')];
+  if (!init) return initDirectives(app, el, rest);
 
-  // the link function was only implemented
-  // if (typeof conf === 'function') return initDirectives(app, view, rest);
+  var res = init(el, app);
+  var conf = mori.hash_map('change', res[1], 'destroy', res[2]);
+  var el2 = mori.assoc_in(res[0], ['directives', attr], conf);
 
-  // TODO only init directive here
-  var users = mori.vector(
-    mori.hash_map('name', 'cameron'),
-    mori.hash_map('name', 'mike'),
-    mori.hash_map('name', 'tim'));
-  var defaultScope = mori.hash_map('users', users);
-  var scope = mori.get(view, 'scope', defaultScope);
-
-  var view2 = conf(view, scope, param);
-  return initDirectives(app, view2, rest);
+  return initDirectives(app, el2, rest);
 }
 
-function init2(app, view, scope, fn) {
-  if (mori.is_vector(view)) return initCollection2(app, view, scope, fn);
-  debug('initializing view', view);
-  scope = mori.get('scope', view, scope);
-  applyDirectives2(app, view, scope, mori.keys(view, 'children'), function(err, view2, scope2) {
-    if (err) return fn(err);
-    initCollection2(app, mori.get(view2, 'children'), scope, function(err, children) {
-      if (err) return fn(err);
-      fn(null, mori.assoc(view2, 'children', children));
-    });
-  });
+/**
+ * Noop for an init function
+ *
+ * @param {Function} fn
+ * @return {Function}
+ */
+
+function noopInit(fn) {
+  return function(el) {
+    return [el, fn];
+  };
 }
 
-function initCollection2(app, views, scope, fn) {
-  debug('initiailizing collection', views);
-  if (mori.is_empty(views)) return fn();
-  var collection = [];
-
-  mori.reduce_kv(function(acc, i, view) {
-    init2(app, view, scope, function(err, el) {
-      if (err) return fn(err);
-      acc[i] = view;
-      fn(null, mori.vector.apply(null, acc));
-    });
-  }, collection, views);
-}
-
-function applyDirectives2(app, el, scope, attrs, done) {
-  if (mori.is_empty(attrs)) return done(null, el, scope);
-  var attr = mori.first(attrs);
-  var rest = mori.rest(attrs);
-  var fn = app.directives[attr];
-  if (!fn) return applyDirectives2(app, el, scope, rest, done);
-  debug('applying directive', attr);
-  var res;
-  if (fn.length === 0) fn = fn();
-  if (fn.length === 1) {
-    res = fn(el);
-    if (typeof res !== 'function') return applyDirectives2(app, res, scope, rest, done);
-    if (res.length === 1) return applyDirectives2(app, res(scope), res, done);
-    return res(scope, function(err, el2, scope2) {
-      applyDirectives2(app, el2, scope2, rest, done);
-    });
-  }
-  if (fn.length === 2) {
-    res = fn(el, scope);
-    if (typeof res !== 'function') return applyDirectives2(app, res, scope, rest, done);
-    if (res.length === 0) return applyDirectives2(app, res(), res, done);
-    return res(function(err, el2, scope2) {
-      applyDirectives2(app, el2, scope2, rest, done);
-    });
-  }
-  fn(el, scope, function(err, el2, scope2) {
-    if (err) return done(err);
-    applyDirectives2(app, el2, scope2, rest, done);
-  });
+function renderScope(app, tree, scope, fn) {
+  fn(null, {});
 }

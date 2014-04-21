@@ -3,6 +3,7 @@
  */
 
 var htmlparser = require('htmlparser');
+var mori = require('mori');
 
 exports = module.exports = Compiler;
 
@@ -66,18 +67,19 @@ function minify(dom) {
   el.push(minify(dom.children || []));
 
   if (dom.name === 'div') return el;
-
   el.push(dom.name);
 
-  el.push(dom.type);
+  if (dom.type !== 'tag') el.push(dom.type);
 
   return el;
 }
 
 function attach(app) {
   var compiler = new Compiler();
+  var _view = app.view;
   app.view = function(name, template) {
     compiler.view(name, template);
-    this.views[name] = minify(compiler.views[name]);
+    var view = minify(compiler.views[name]);
+    return _view.call(app, name, view);
   };
 }

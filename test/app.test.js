@@ -4,12 +4,14 @@
 
 var App = require('..');
 var compiler = require('../compiler');
+var minidom = require('../minidom');
 var mori = require('mori');
 
 describe('app', function() {
   it('should start', function(done) {
     var app = new App('test-app');
 
+    app.use(minidom());
     app.use(compiler());
 
     app.view('root', '<div data-each="user in users"><span data-bind="user.name"></span></div>');
@@ -28,9 +30,6 @@ describe('app', function() {
       var value = mori.get_in(scope, expr, '');
       return mori.assoc(el, 'text', value, 'children', null);
     });
-
-    console.log(app.init('root'));
-    return done();
 
     app.render('root', function(err, str) {
       console.log('result', str);
